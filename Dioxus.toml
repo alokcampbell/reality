@@ -13,4 +13,4 @@ script = []
 script = []
 
 [web.wasm_opt]
-level = 0
+level = "0"
