@@ -10,12 +10,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tower_http::cors::{Any, CorsLayer};
-use crate::crdt::Doc;
-
 use crate::state::AppState;
-
-// websocket logic, router, etc
-
 
 pub fn ws_router(state: AppState) -> Router {
     let cors = CorsLayer::new()
@@ -38,6 +33,7 @@ struct SpliceMsg {
 
 #[derive(Deserialize)]
 struct ClientMsg {
+    client_id: String,
     splice: SpliceMsg,
 }
 
@@ -50,16 +46,14 @@ pub async fn ws_handler(
     ws.on_upgrade(move |socket| handle_socket(socket, id, state))
 }
 
-// logic for message and lobby replication
-
 async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
     let room = state.get_or_create_room(&id);
     let mut rx = room.tx.subscribe();
     let (mut sink, mut stream) = socket.split();
 
     {
-        let doc: tokio::sync::MutexGuard<'_, Doc> = room.doc.lock().await;
-        let payload = make_text_payload(&doc.get_text());
+        let doc: tokio::sync::MutexGuard<'_, crate::crdt::Doc> = room.doc.lock().await;
+        let payload = make_text_payload(&doc.get_text(), "server");
         let _ = sink.send(Message::Text(payload.into())).await;
     }
 
@@ -91,7 +85,7 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
             };
 
             let new_text = {
-                let mut doc: tokio::sync::MutexGuard<'_, Doc> = room_clone.doc.lock().await;
+                let mut doc: tokio::sync::MutexGuard<'_, crate::crdt::Doc> = room_clone.doc.lock().await;
                 doc.splice_text(cmd.splice.index, cmd.splice.delete, &cmd.splice.insert)
             };
 
@@ -108,7 +102,7 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
                 }
             });
 
-            let _ = room_clone.tx.send(make_text_payload(&new_text));
+            let _ = room_clone.tx.send(make_text_payload(&new_text, &cmd.client_id));
         }
     });
 
@@ -118,8 +112,10 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
     }
 }
 
-// manages new messages
-
-fn make_text_payload(text: &str) -> String {
-    format!(r#"{{"text":{}}}"#, serde_json::to_string(text).unwrap())
+fn make_text_payload(text: &str, sender_id: &str) -> String {
+    format!(
+        r#"{{"text":{},"sender_id":{}}}"#,
+        serde_json::to_string(text).unwrap(),
+        serde_json::to_string(sender_id).unwrap()
+    )
 }

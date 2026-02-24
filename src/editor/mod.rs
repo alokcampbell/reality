@@ -50,23 +50,25 @@ fn apply_remote_patch(old_text: &str, new_text: &str) {
 
     let (splice_at, del, ins) = crdt::diff(old_text, new_text);
     let ins_len = ins.chars().count();
-
     let (cur_start, cur_end) = get_cursor();
-
     ta.set_value(new_text);
-
     let new_start = adjust_cursor(cur_start as usize, splice_at, del, ins_len) as u32;
     let new_end   = adjust_cursor(cur_end   as usize, splice_at, del, ins_len) as u32;
     set_cursor(new_start, new_end);
 }
 
+fn generate_client_id() -> String {
+    let a = (js_sys::Math::random() * 0xffffffff_u32 as f64) as u64;
+    let b = (js_sys::Math::random() * 0xffffffff_u32 as f64) as u64;
+    format!("{:x}{:x}", a, b)
+}
 
 #[component]
 pub fn Editor(id: String) -> Element {
-    let mut content  = use_signal(|| String::new());
-    let mut preview  = use_signal(|| false);
-
+    let mut content   = use_signal(|| String::new());
+    let mut preview   = use_signal(|| false);
     let mut last_text = use_signal(|| String::new());
+    let client_id     = use_signal(|| generate_client_id());
 
     let ws_tx: Signal<Option<futures_channel::mpsc::UnboundedSender<String>>> =
         use_signal(|| None);
@@ -76,7 +78,9 @@ pub fn Editor(id: String) -> Element {
         let mut ws_tx = ws_tx.clone();
 
         move || {
-            let id = id.clone();
+            let id        = id.clone();
+            let client_id = client_id.read().clone();
+
             wasm_bindgen_futures::spawn_local(async move {
                 let ws = match WebSocket::open(&get_ws_url(&id)) {
                     Ok(ws) => ws,
@@ -104,7 +108,11 @@ pub fn Editor(id: String) -> Element {
                             _ => continue,
                         };
 
-                        if let Some(new_text) = decode_doc_text(json.as_bytes()) {
+                        if let Some((new_text, sender_id)) = decode_payload(json.as_bytes()) {
+                            if sender_id == client_id {
+                                continue;
+                            }
+
                             let old_text = get_textarea()
                                 .map(|ta| ta.value())
                                 .unwrap_or_default();
@@ -126,7 +134,8 @@ pub fn Editor(id: String) -> Element {
         let (index, delete, insert) = crdt::diff(old, new);
         if delete == 0 && insert.is_empty() { return; }
         let msg = format!(
-            r#"{{"splice":{{"index":{},"delete":{},"insert":{}}}}}"#,
+            r#"{{"client_id":{},"splice":{{"index":{},"delete":{},"insert":{}}}}}"#,
+            serde_json::to_string(&*client_id.read()).unwrap(),
             index,
             delete,
             serde_json::to_string(&insert).unwrap_or_else(|_| "\"\"".into())
@@ -155,7 +164,6 @@ pub fn Editor(id: String) -> Element {
             ta.set_value(&new_text);
         }
         set_cursor(cursor_after as u32, cursor_after as u32);
-
         send_patch(&old_text, &new_text);
         last_text.set(new_text.clone());
         content.set(new_text);
@@ -209,6 +217,7 @@ pub fn Editor(id: String) -> Element {
                     textarea {
                         id: "editor-textarea",
                         style: "flex:1;padding:1rem;font-family:'Fira Code',monospace;font-size:14px;line-height:1.6;border:none;resize:none;outline:none;background:#fafafa;width:100%;box-sizing:border-box;",
+                        value: "{content}",
                         oninput: handle_input,
                     }
                 }
@@ -216,7 +225,6 @@ pub fn Editor(id: String) -> Element {
         }
     }
 }
-
 
 fn adjust_cursor(cursor: usize, splice_at: usize, del: usize, ins_len: usize) -> usize {
     if cursor <= splice_at {
@@ -283,9 +291,11 @@ fn apply_toolbar_action_at_cursor(
     }
 }
 
-fn decode_doc_text(bytes: &[u8]) -> Option<String> {
+fn decode_payload(bytes: &[u8]) -> Option<(String, String)> {
     let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    v.get("text")?.as_str().map(|s| s.to_string())
+    let text      = v.get("text")?.as_str()?.to_string();
+    let sender_id = v.get("sender_id")?.as_str()?.to_string();
+    Some((text, sender_id))
 }
 
 fn download_md(content: &str) {
