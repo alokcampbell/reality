@@ -7,8 +7,14 @@ use gloo_net::websocket::{futures::WebSocket, Message};
 use futures_util::{SinkExt, StreamExt};
 use toolbar::{Toolbar, ToolbarAction};
 
-const WS_URL: &str = "ws://localhost:3001/ws";
-
+fn get_ws_url(id: &str) -> String {
+    let window = web_sys::window().unwrap();
+    let location = window.location();
+    let host = location.host().unwrap();
+    let protocol = location.protocol().unwrap();
+    let ws_protocol = if protocol == "https:" { "wss:" } else { "ws:" };
+    format!("{}//{}/ws/{}", ws_protocol, host, id)
+}
 
 fn get_textarea() -> Option<web_sys::HtmlTextAreaElement> {
     use wasm_bindgen::JsCast;
@@ -72,7 +78,7 @@ pub fn Editor(id: String) -> Element {
         move || {
             let id = id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let ws = match WebSocket::open(&format!("{WS_URL}/{id}")) {
+                let ws = match WebSocket::open(&get_ws_url(&id)) {
                     Ok(ws) => ws,
                     Err(e) => { eprintln!("WS error: {:?}", e); return; }
                 };
