@@ -10,6 +10,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tower_http::cors::{Any, CorsLayer};
+use crate::crdt::Doc;
 
 use crate::state::AppState;
 
@@ -57,7 +58,7 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
     let (mut sink, mut stream) = socket.split();
 
     {
-        let doc = room.doc.lock().await;
+        let doc: tokio::sync::MutexGuard<'_, Doc> = room.doc.lock().await;
         let payload = make_text_payload(&doc.get_text());
         let _ = sink.send(Message::Text(payload.into())).await;
     }
@@ -90,7 +91,7 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
             };
 
             let new_text = {
-                let mut doc = room_clone.doc.lock().await;
+                let mut doc: tokio::sync::MutexGuard<'_, Doc> = room_clone.doc.lock().await;
                 doc.splice_text(cmd.splice.index, cmd.splice.delete, &cmd.splice.insert)
             };
 
