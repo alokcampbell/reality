@@ -12,7 +12,7 @@ async fn main() {
 
     let app = Router::new()
         .merge(ws_routes)
-        .fallback_service(ServeDir::new("dist"))
+        .fallback_service(ServeDir::new("target/dx/reality/release/web/public"))
         .layer(CorsLayer::permissive());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
