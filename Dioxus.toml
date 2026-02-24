@@ -1,0 +1,13 @@
+[application]
+name = "reality"
+default_platform = "web"
+
+[web.app]
+title = "reality"
+
+[web.resource]
+style = ["assets/main.css"]
+script = []
+
+[web.resource.dev]
+script = []
