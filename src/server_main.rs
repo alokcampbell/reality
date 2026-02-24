@@ -1,12 +1,20 @@
-mod crdt;
 mod state;
 mod ws;
-// this hosts the database
+
+use axum::Router;
+use tower_http::{cors::CorsLayer, services::ServeDir};
+// server back end
 #[tokio::main]
 async fn main() {
     let state = state::AppState::new();
-    let router = ws::ws_router(state);
+    let ws_routes = ws::ws_router(state);
+
+    let app = Router::new()
+        .merge(ws_routes)
+        .fallback_service(ServeDir::new("dist"))
+        .layer(CorsLayer::permissive());
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
-    println!("WS server listening on ws://0.0.0.0:3001");
-    axum::serve(listener, router).await.unwrap();
+    println!("Reality running on http://0.0.0.0:3001");
+    axum::serve(listener, app).await.unwrap();
 }
