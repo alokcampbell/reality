@@ -42,7 +42,7 @@ pub fn Landing() -> Element {
 }
 
 fn uuid() -> String {
-    // manages the code string
+    // manages the room code string
     let a = (js_sys::Math::random() * 0xffffffff_u32 as f64) as u64;
     let b = (js_sys::Math::random() * 0xffffffff_u32 as f64) as u64;
     format!("{:x}-{:x}", a, b)

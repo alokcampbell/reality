@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
-// this hosts the front end
+// this hosts the front end, route allows for room codes
 mod editor;
 mod landing;
 

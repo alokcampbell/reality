@@ -24,6 +24,8 @@ pub fn ws_router(state: AppState) -> Router {
         .with_state(state)
 }
 
+// server and client side handling of the text changes
+
 #[derive(Deserialize)]
 struct SpliceMsg {
     index: usize,
@@ -45,6 +47,8 @@ pub async fn ws_handler(
     let id = id.trim_start_matches('/').to_string();
     ws.on_upgrade(move |socket| handle_socket(socket, id, state))
 }
+
+// this is all the server shit when it comes to communicating the text payload, and saving the .md so it doesn't get erased in memory if the server needs a restart
 
 async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
     let room = state.get_or_create_room(&id);

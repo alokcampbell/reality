@@ -19,7 +19,7 @@ impl Doc {
     pub fn get_text(&self) -> String {
         self.am.text(&self.text_obj).unwrap_or_default()
     }
-
+    // reads and updates the text
     pub fn splice_text(&mut self, index: usize, delete: usize, insert: &str) -> String {
         self.am
             .splice_text(&self.text_obj, index, delete as isize, insert)

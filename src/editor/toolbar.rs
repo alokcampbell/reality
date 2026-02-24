@@ -6,6 +6,8 @@ pub struct ToolbarProps {
 }
 
 #[derive(Clone, PartialEq)]
+
+// these are the options for the toolbars, made it a list so adding other options could be easy
 pub enum ToolbarAction {
     Bold,
     Italic,
@@ -22,6 +24,7 @@ pub enum ToolbarAction {
 #[component]
 pub fn Toolbar(props: ToolbarProps) -> Element {
     rsx! {
+        // actual code for the toolbar options, maybe one day i could make it cleaner
         div {
             style: "display:flex;gap:0.25rem;padding:0.4rem 1rem;background:#2a2a3e;border-bottom:1px solid #3a3a5e;flex-wrap:wrap;",
 
@@ -61,6 +64,8 @@ struct ToolbarBtnProps {
     #[props(default = false)]
     italic: bool,
 }
+
+// buttons
 
 #[component]
 fn ToolbarBtn(props: ToolbarBtnProps) -> Element {

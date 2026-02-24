@@ -25,6 +25,8 @@ fn get_textarea() -> Option<web_sys::HtmlTextAreaElement> {
         .ok()
 }
 
+// keeping the cursor in the same place so it doesnt teleport every new line
+
 fn get_cursor() -> (u32, u32) {
     get_textarea()
         .map(|ta| {
@@ -116,7 +118,7 @@ pub fn Editor(id: String) -> Element {
                             let old_text = get_textarea()
                                 .map(|ta| ta.value())
                                 .unwrap_or_default();
-
+                            // setting text and cursor
                             if new_text != old_text {
                                 apply_remote_patch(&old_text, &new_text);
                             }
@@ -172,6 +174,7 @@ pub fn Editor(id: String) -> Element {
     let id_display = id.clone();
 
     rsx! {
+        // this is the site / code for the actual note taking app, not the landing page like landing.rs
         div { style: "display:flex;flex-direction:column;height:100vh;font-family:monospace;",
 
             div { style: "display:flex;align-items:center;padding:0.5rem 1rem;background:#1a1a2e;color:white;gap:1rem;flex-shrink:0;",
@@ -214,6 +217,7 @@ pub fn Editor(id: String) -> Element {
                         dangerous_inner_html: render_markdown(&content.read())
                     }
                 } else {
+                    // holding already typed data for the preview
                     textarea {
                         id: "editor-textarea",
                         style: "flex:1;padding:1rem;font-family:'Fira Code',monospace;font-size:14px;line-height:1.6;border:none;resize:none;outline:none;background:#fafafa;width:100%;box-sizing:border-box;",
@@ -248,7 +252,6 @@ fn apply_toolbar_action_at_cursor(
     let selected: String = chars[sel_start..sel_end].iter().collect();
     let before:   String = chars[..sel_start].iter().collect();
     let after:    String = chars[sel_end..].iter().collect();
-
     match action {
         ToolbarAction::Bold => {
             let inner = if selected.is_empty() { "bold text" } else { &selected };
@@ -272,6 +275,7 @@ fn apply_toolbar_action_at_cursor(
             (format!("{}[{}]({}){}", before, inner, url, after), cursor)
         }
         _ => {
+            // toolbar actions lol
             let snippet: &str = match action {
                 ToolbarAction::CodeBlock    => "```\ncode here\n```",
                 ToolbarAction::Heading(1)   => "# Heading 1",
@@ -313,6 +317,8 @@ fn download_md(content: &str) {
     a.click();
     web_sys::Url::revoke_object_url(&url).unwrap();
 }
+
+// visual effects, maybe one day i can go back and make it one function with a list or something, but did it the hard and long way for now
 
 fn render_markdown(md: &str) -> String {
     let mut output = String::new();
