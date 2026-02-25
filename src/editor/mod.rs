@@ -196,6 +196,7 @@ pub fn Editor(id: String) -> Element {
                 span { style: "font-size:0.75rem;opacity:0.6;flex:1;font-family:sans-serif;", "/{id_display}" }
                 button {
                     style: "padding:0.3rem 0.7rem;background:#3a3a5e;color:white;border:none;border-radius:4px;cursor:pointer;",
+                    // copying the link
                     onclick: move |_| {
                         let id = id_display.clone();
                         wasm_bindgen_futures::spawn_local(async move {
