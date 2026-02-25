@@ -70,6 +70,7 @@ pub fn Editor(id: String) -> Element {
     let mut content   = use_signal(|| String::new());
     let mut preview   = use_signal(|| false);
     let mut last_text = use_signal(|| String::new());
+    let mut version   = use_signal(|| 0u64);
     let client_id     = use_signal(|| generate_client_id());
 
     let ws_tx: Signal<Option<futures_channel::mpsc::UnboundedSender<String>>> =
@@ -110,8 +111,9 @@ pub fn Editor(id: String) -> Element {
                             _ => continue,
                         };
 
-                        if let Some((new_text, sender_id)) = decode_payload(json.as_bytes()) {
+                        if let Some((new_text, sender_id, server_version)) = decode_payload(json.as_bytes()) {
                             if sender_id == client_id {
+                                version.set(server_version);
                                 continue;
                             }
 
@@ -122,7 +124,8 @@ pub fn Editor(id: String) -> Element {
                             if new_text != old_text {
                                 apply_remote_patch(&old_text, &new_text);
                             }
-
+                            // setting version and text
+                            version.set(server_version);
                             last_text.set(new_text.clone());
                             content.set(new_text);
                         }
@@ -136,8 +139,9 @@ pub fn Editor(id: String) -> Element {
         let (index, delete, insert) = crdt::diff(old, new);
         if delete == 0 && insert.is_empty() { return; }
         let msg = format!(
-            r#"{{"client_id":{},"splice":{{"index":{},"delete":{},"insert":{}}}}}"#,
+            r#"{{"client_id":{},"version":{},"splice":{{"index":{},"delete":{},"insert":{}}}}}"#,
             serde_json::to_string(&*client_id.read()).unwrap(),
+            *version.read(),
             index,
             delete,
             serde_json::to_string(&insert).unwrap_or_else(|_| "\"\"".into())
@@ -295,11 +299,12 @@ fn apply_toolbar_action_at_cursor(
     }
 }
 
-fn decode_payload(bytes: &[u8]) -> Option<(String, String)> {
+fn decode_payload(bytes: &[u8]) -> Option<(String, String, u64)> {
     let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
     let text      = v.get("text")?.as_str()?.to_string();
     let sender_id = v.get("sender_id")?.as_str()?.to_string();
-    Some((text, sender_id))
+    let version   = v.get("version")?.as_u64()?;
+    Some((text, sender_id, version))
 }
 
 fn download_md(content: &str) {

@@ -6,8 +6,10 @@ use crate::crdt::Doc;
 
 #[derive(Clone)]
 pub struct Room {
-    pub doc: Arc<Mutex<Doc>>,
-    pub tx:  broadcast::Sender<String>,
+    pub doc:     Arc<Mutex<Doc>>,
+    pub tx:      broadcast::Sender<String>,
+    pub version: Arc<Mutex<u64>>,
+    pub history: Arc<Mutex<Vec<(usize, usize, String)>>>,
 }
 
 impl Room {
@@ -18,8 +20,10 @@ impl Room {
             doc.splice_text(0, 0, initial_text);
         }
         Self {
-            doc: Arc::new(Mutex::new(doc)),
+            doc:     Arc::new(Mutex::new(doc)),
             tx,
+            version: Arc::new(Mutex::new(0)),
+            history: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }

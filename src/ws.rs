@@ -36,6 +36,7 @@ struct SpliceMsg {
 #[derive(Deserialize)]
 struct ClientMsg {
     client_id: String,
+    version: u64,
     splice: SpliceMsg,
 }
 
@@ -89,8 +90,32 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
             };
 
             let new_text = {
-                let mut doc: tokio::sync::MutexGuard<'_, crate::crdt::Doc> = room_clone.doc.lock().await;
-                doc.splice_text(cmd.splice.index, cmd.splice.delete, &cmd.splice.insert)
+                let mut doc = room_clone.doc.lock().await;
+                let mut version = room_clone.version.lock().await;
+                let mut history = room_clone.history.lock().await;
+            
+                let text_lengt = doc.get_text().chars().count();
+                let mut insert_at= cmd.splice.index;
+                let mut delete_count= cmd.splice.delete;
+            
+                if cmd.version < *version {
+                    for (past_insert_at, past_delete_count, past_inserted_text) in history.iter().skip(cmd.version as usize) {
+                        let past_insert_len = past_inserted_text.chars().count();
+                        if *past_insert_at <= insert_at {
+                            insert_at = insert_at.saturating_sub(*past_delete_count).saturating_add(past_insert_len);
+                        } else if *past_insert_at < insert_at + delete_count {
+                            delete_count = delete_count.saturating_sub(past_delete_count.min(&delete_count));
+                        }
+                    }
+                }
+            
+                insert_at    = insert_at.min(text_length);
+                delete_count = delete_count.min(text_length.saturating_sub(insert_at));
+            
+                let result = doc.splice_text(insert_at, delete_count, &cmd.splice.insert);
+                *version += 1;
+                history.push((insert_at, delete_count, cmd.splice.insert.clone()));
+                result
             };
 
             let text_for_save = new_text.clone();
@@ -106,7 +131,13 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
                 }
             });
 
-            let _ = room_clone.tx.send(make_text_payload(&new_text, &cmd.client_id));
+            let version = *room_clone.version.lock().await;
+            let msg = ServerMsg {
+                 text: new_text,
+                 sender_id: cmd.client_id,
+                 version,
+            };
+            let _ = room_clone.tx.send(serde_json::to_string(&msg).unwrap());
         }
     });
 
