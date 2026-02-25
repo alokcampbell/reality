@@ -70,8 +70,8 @@ pub fn Editor(id: String) -> Element {
     let mut content   = use_signal(|| String::new());
     let mut preview   = use_signal(|| false);
     let mut last_text = use_signal(|| String::new());
-    let mut version   = use_signal(|| 0u64);
     let client_id     = use_signal(|| generate_client_id());
+    let mut doc = use_signal(|| crdt::Doc::new());
 
     let ws_tx: Signal<Option<futures_channel::mpsc::UnboundedSender<String>>> =
         use_signal(|| None);
@@ -105,27 +105,33 @@ pub fn Editor(id: String) -> Element {
                         let json = match msg {
                             Message::Text(t)  => t,
                             Message::Bytes(b) => match String::from_utf8(b) {
-                                Ok(s) => s,
+                                Ok(s)  => s,
                                 Err(_) => continue,
                             },
-                            _ => continue,
                         };
-
-                        if let Some((new_text, sender_id, server_version)) = decode_payload(json.as_bytes()) {
-                            if sender_id == client_id {
-                                version.set(server_version);
-                                continue;
+                    
+                        let (text, sender_id, full_doc_bytes) = match decode_payload(json.as_bytes()) {
+                            Some(v) => v,
+                            None    => continue,
+                        };
+                        
+                        if sender_id == "server" {
+                            if let Some(loaded) = crdt::Doc::load_from_bytes(&full_doc_bytes) {
+                                *doc.write() = loaded;
                             }
-
-                            let old_text = get_textarea()
-                                .map(|ta| ta.value())
-                                .unwrap_or_default();
-                            // setting text and cursor
-                            if new_text != old_text {
-                                apply_remote_patch(&old_text, &new_text);
+                            let current_text = doc.read().get_text();
+                            if let Some(ta) = get_textarea() {
+                                ta.set_value(&current_text);
                             }
-                            // setting version and text
-                            version.set(server_version);
+                            last_text.set(current_text.clone());
+                            content.set(current_text);
+                            continue;
+                        }
+                        if sender_id != client_id {
+                            let old_text = last_text.read().clone();
+                            let merged_text = doc.write().merge_from_bytes(&full_doc_bytes);
+                            let new_text = merged_text.unwrap_or(text);
+                            apply_remote_patch(&old_text, &new_text);
                             last_text.set(new_text.clone());
                             content.set(new_text);
                         }
@@ -135,19 +141,23 @@ pub fn Editor(id: String) -> Element {
         }
     });
 
-    let send_patch = move |old: &str, new: &str| {
-        let (index, delete, insert) = crdt::diff(old, new);
-        if delete == 0 && insert.is_empty() { return; }
-        let msg = format!(
-            r#"{{"client_id":{},"version":{},"splice":{{"index":{},"delete":{},"insert":{}}}}}"#,
-            serde_json::to_string(&*client_id.read()).unwrap(),
-            *version.read(),
-            index,
-            delete,
-            serde_json::to_string(&insert).unwrap_or_else(|_| "\"\"".into())
-        );
+    let mut send_patch = move |old: &str, new: &str| {
+        let (insert_at, delete_count, inserted_text) = crdt::diff(old, new);
+        if delete_count == 0 && inserted_text.is_empty() { return; }
+    
+        let change_bytes = {
+            let mut d = doc.write();
+            d.splice_text(insert_at, delete_count, &inserted_text);
+            d.save_changes()
+        };
+    
+        let msg = serde_json::json!({
+            "client_id": &*client_id.read(),
+            "changes": change_bytes,
+        });
+    
         if let Some(tx) = ws_tx.read().as_ref() {
-            let _ = tx.unbounded_send(msg);
+            let _ = tx.unbounded_send(msg.to_string());
         }
     };
 
@@ -299,23 +309,27 @@ fn apply_toolbar_action_at_cursor(
     }
 }
 
-fn decode_payload(bytes: &[u8]) -> Option<(String, String, u64)> {
+fn decode_payload(bytes: &[u8]) -> Option<(String, String, Vec<u8>)> {
     let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
     let text      = v.get("text")?.as_str()?.to_string();
     let sender_id = v.get("sender_id")?.as_str()?.to_string();
-    let version   = v.get("version")?.as_u64()?;
-    Some((text, sender_id, version))
+    let full_doc  = v.get("full_doc")?
+        .as_array()?
+        .iter()
+        .filter_map(|b| b.as_u64().map(|n| n as u8))
+        .collect();
+    Some((text, sender_id, full_doc))
 }
 
 fn download_md(content: &str) {
     use wasm_bindgen::JsCast;
-    let window = web_sys::window().unwrap();
+    let window   = web_sys::window().unwrap();
     let document = window.document().unwrap();
-    let arr = js_sys::Array::new();
+    let arr      = js_sys::Array::new();
     arr.push(&wasm_bindgen::JsValue::from_str(content));
     let blob = web_sys::Blob::new_with_str_sequence(&arr).unwrap();
-    let url = web_sys::Url::create_object_url_with_blob(&blob).unwrap();
-    let a = document.create_element("a").unwrap()
+    let url  = web_sys::Url::create_object_url_with_blob(&blob).unwrap();
+    let a    = document.create_element("a").unwrap()
         .dyn_into::<web_sys::HtmlAnchorElement>().unwrap();
     a.set_href(&url);
     a.set_download("document.md");
@@ -326,9 +340,9 @@ fn download_md(content: &str) {
 // visual effects, maybe one day i can go back and make it one function with a list or something, but did it the hard and long way for now
 
 fn render_markdown(md: &str) -> String {
-    let mut output = String::new();
-    let mut in_code_block = false;
-    let mut in_list = false;
+    let mut output         = String::new();
+    let mut in_code_block  = false;
+    let mut in_list        = false;
     for line in md.lines() {
         if line.starts_with("```") {
             if in_code_block {
@@ -382,8 +396,8 @@ fn html_escape(s: &str) -> String {
 
 fn replace_bold(s: &str) -> String {
     let mut result = String::new();
-    let mut chars = s.chars().peekable();
-    let mut open = false;
+    let mut chars  = s.chars().peekable();
+    let mut open   = false;
     while let Some(c) = chars.next() {
         if c == '*' && chars.peek() == Some(&'*') {
             chars.next();
@@ -411,11 +425,11 @@ fn replace_links(s: &str) -> String {
         if let Some(mid) = result[start..].find("](") {
             let mid = start + mid;
             if let Some(end) = result[mid..].find(')') {
-                let end = mid + end;
+                let end  = mid + end;
                 let text = result[start+1..mid].to_string();
                 let url  = result[mid+2..end].to_string();
                 let link = format!("<a href=\"{}\" target=\"_blank\">{}</a>", url, text);
-                result = format!("{}{}{}", &result[..start], link, &result[end+1..]);
+                result   = format!("{}{}{}", &result[..start], link, &result[end+1..]);
                 continue;
             }
         }

@@ -96,6 +96,7 @@ dependencies = [
  "hex",
  "im",
  "itertools",
+ "js-sys",
  "leb128",
  "serde",
  "sha2",
@@ -105,6 +106,8 @@ dependencies = [
  "tracing",
  "unicode-segmentation",
  "uuid",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

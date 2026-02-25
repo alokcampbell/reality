@@ -2,7 +2,7 @@ mod crdt;
 mod state;
 mod ws;
 
-use axum::{Router, routing::get_service};
+use axum::Router;
 use tower_http::{cors::CorsLayer, services::{ServeDir, ServeFile}};
 
 #[tokio::main]
@@ -11,7 +11,7 @@ async fn main() {
     let ws_routes = ws::ws_router(state);
 
     let serve_dir = ServeDir::new("target/dx/reality/release/web/public")
-        .fallback(ServeFile::new("target/dx/reality/release/web/public/index.html")); // allows full code urls to work, no idea why
+        .fallback(ServeFile::new("target/dx/reality/release/web/public/index.html")); //allows full code urls to work, no idea why
 
     let app = Router::new()
         .merge(ws_routes)

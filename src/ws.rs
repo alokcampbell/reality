@@ -8,7 +8,7 @@ use axum::{
     Router,
 };
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use crate::state::AppState;
 
@@ -17,7 +17,6 @@ pub fn ws_router(state: AppState) -> Router {
         .allow_origin(Any)
         .allow_headers(Any)
         .allow_methods(Any);
-
     Router::new()
         .route("/ws/*id", get(ws_handler))
         .layer(cors)
@@ -25,19 +24,17 @@ pub fn ws_router(state: AppState) -> Router {
 }
 
 // server and client side handling of the text changes
-
-#[derive(Deserialize)]
-struct SpliceMsg {
-    index: usize,
-    delete: usize,
-    insert: String,
-}
-
 #[derive(Deserialize)]
 struct ClientMsg {
     client_id: String,
-    version: u64,
-    splice: SpliceMsg,
+    changes:   Vec<u8>,
+}
+
+#[derive(Serialize)]
+struct ServerMsg {
+    sender_id: String,
+    text:      String,
+    full_doc:  Vec<u8>,
 }
 
 pub async fn ws_handler(
@@ -50,15 +47,18 @@ pub async fn ws_handler(
 }
 
 // this is all the server shit when it comes to communicating the text payload, and saving the .md so it doesn't get erased in memory if the server needs a restart
-
 async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
     let room = state.get_or_create_room(&id);
     let mut rx = room.tx.subscribe();
     let (mut sink, mut stream) = socket.split();
 
     {
-        let doc: tokio::sync::MutexGuard<'_, crate::crdt::Doc> = room.doc.lock().await;
-        let payload = make_text_payload(&doc.get_text(), "server");
+        let mut doc = room.doc.lock().await;
+        let payload = serde_json::to_string(&ServerMsg {
+            sender_id: "server".to_string(),
+            text:      doc.get_text(),
+            full_doc:  (*doc).save(),
+        }).unwrap();
         let _ = sink.send(Message::Text(payload.into())).await;
     }
 
@@ -81,45 +81,25 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
                 _                  => continue,
             };
 
-            let cmd: ClientMsg = match serde_json::from_slice(&bytes) {
+            let client_msg: ClientMsg = match serde_json::from_slice(&bytes) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("[ws/{id_clone}] bad msg: {e}  raw: {}", String::from_utf8_lossy(&bytes));
+                    eprintln!("[ws/{id_clone}] bad msg: {e}");
                     continue;
                 }
             };
 
-            let new_text = {
+            let (new_text, full_doc) = {
                 let mut doc = room_clone.doc.lock().await;
-                let mut version = room_clone.version.lock().await;
-                let mut history = room_clone.history.lock().await;
-            
-                let text_lengt = doc.get_text().chars().count();
-                let mut insert_at= cmd.splice.index;
-                let mut delete_count= cmd.splice.delete;
-            
-                if cmd.version < *version {
-                    for (past_insert_at, past_delete_count, past_inserted_text) in history.iter().skip(cmd.version as usize) {
-                        let past_insert_len = past_inserted_text.chars().count();
-                        if *past_insert_at <= insert_at {
-                            insert_at = insert_at.saturating_sub(*past_delete_count).saturating_add(past_insert_len);
-                        } else if *past_insert_at < insert_at + delete_count {
-                            delete_count = delete_count.saturating_sub(past_delete_count.min(&delete_count));
-                        }
-                    }
-                }
-            
-                insert_at    = insert_at.min(text_length);
-                delete_count = delete_count.min(text_length.saturating_sub(insert_at));
-            
-                let result = doc.splice_text(insert_at, delete_count, &cmd.splice.insert);
-                *version += 1;
-                history.push((insert_at, delete_count, cmd.splice.insert.clone()));
-                result
+                let text = doc.merge_changes(&client_msg.changes);
+                eprintln!("[ws/{id_clone}] merged, text len={}", text.len());
+                let full = (*doc).save();
+                (text, full)
             };
 
-            let text_for_save = new_text.clone();
-            let id_for_save   = id_clone.clone();
+            let text_for_save    = new_text.clone();
+            let full_doc_for_save = full_doc.clone();
+            let id_for_save      = id_clone.clone();
             tokio::spawn(async move {
                 if let Err(e) = std::fs::create_dir_all("docs") {
                     eprintln!("create_dir_all failed: {e}");
@@ -129,15 +109,18 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
                 if let Err(e) = std::fs::write(&path, &text_for_save) {
                     eprintln!("write {path} failed: {e}");
                 }
+                let am_path = format!("docs/{id_for_save}.am");
+                if let Err(e) = std::fs::write(&am_path, &full_doc_for_save) {
+                    eprintln!("write {am_path} failed: {e}");
+                }
             });
 
-            let version = *room_clone.version.lock().await;
-            let msg = ServerMsg {
-                 text: new_text,
-                 sender_id: cmd.client_id,
-                 version,
-            };
-            let _ = room_clone.tx.send(serde_json::to_string(&msg).unwrap());
+            let payload = serde_json::to_string(&ServerMsg {
+                sender_id: client_msg.client_id,
+                text:      new_text,
+                full_doc,
+            }).unwrap();
+            let _ = room_clone.tx.send(payload);
         }
     });
 
@@ -145,12 +128,4 @@ async fn handle_socket(socket: WebSocket, id: String, state: AppState) {
         _ = &mut send_task => recv_task.abort(),
         _ = &mut recv_task => send_task.abort(),
     }
-}
-
-fn make_text_payload(text: &str, sender_id: &str) -> String {
-    format!(
-        r#"{{"text":{},"sender_id":{}}}"#,
-        serde_json::to_string(text).unwrap(),
-        serde_json::to_string(sender_id).unwrap()
-    )
 }
