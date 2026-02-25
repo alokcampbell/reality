@@ -2,7 +2,7 @@
 
 An real time note collaboration web app, that saves your notes with a code. Share the code, and you have invite others to see and take notes with you. Reality's name is a play on the app this was supposed to mirror, notion.
 
-reality.alokcampbell.space
+http://reality.alokcampbell.space
 
 ## Features
 
