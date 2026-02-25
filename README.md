@@ -1,50 +1,33 @@
-# Development
+# Reality
 
-Your new bare-bones project includes minimal organization with a single `main.rs` file and a few assets.
+An real time note collaboration web app, that saves your notes with a code. Share the code, and you have invite others to see and take notes with you. Reality's name is a play on the app this was supposed to mirror, notion.
 
-```
-project/
-├─ assets/ # Any assets that are used by the app should be placed here
-├─ src/
-│  ├─ main.rs # main.rs is the entry point to your application and currently contains all components for the app
-├─ Cargo.toml # The Cargo.toml file defines the dependencies and feature flags for your project
-```
+reality.alokcampbell.space
 
-### Automatic Tailwind (Dioxus 0.7+)
+## Features
 
-As of Dioxus 0.7, there no longer is a need to manually install tailwind. Simply `dx serve` and you're good to go!
+- Make a document, write what you want, it is saved!
+- Share the code you see next to Reality, and friends can join and write!
+- Use markdown logic to make your text pop, and also allowing you to use the website to test it out!
+- The document is always saved when you leave, remember the code and you can always come back!
 
-Automatic tailwind is supported by checking for a file called `tailwind.css` in your app's manifest directory (next to Cargo.toml). To customize the file, use the dioxus.toml:
+## Setup
 
-```toml
-[application]
-tailwind_input = "my.css"
-tailwind_output = "assets/out.css" # also customize the location of the out file!
-```
-
-### Tailwind Manual Install
-
-To use tailwind plugins or manually customize tailwind, you can can install the Tailwind CLI and use it directly.
-
-### Tailwind
-1. Install npm: https://docs.npmjs.com/downloading-and-installing-node-js-and-npm
-2. Install the Tailwind CSS CLI: https://tailwindcss.com/docs/installation/tailwind-cli
-3. Run the following command in the root of the project to start the Tailwind CSS compiler:
-
+1. Clone the repository:
 ```bash
-npx @tailwindcss/cli -i ./input.css -o ./assets/tailwind.css --watch
+git clone https://github.com/alokcampbell/reality.git
+cd reality
 ```
 
-### Serving Your App
-
-Run the following command in the root of your project to start developing with the default platform:
-
+2. Then create the application, and build Dioxus:
 ```bash
-dx serve --platform web
+dx build --release --platform web
+cargo build --release --bin reality-server --features server
 ```
 
-To run for a different platform, use the `--platform platform` flag. E.g.
+3. After that, run it:
 ```bash
-dx serve --platform desktop
+./target/release/reality-server
 ```
 
+There you go! Now you can connect to your website, and it should work!
